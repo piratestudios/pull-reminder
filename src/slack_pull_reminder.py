@@ -1,10 +1,16 @@
-from github3 import login
+from github import Github
 import os
 import requests
+import schedule
 import sys
+import time
 
-ignore = os.environ.get('GITHUB_IGNORE_WORDS')
-GITHUB_IGNORE_WORDS = ignore.split(',') if ignore else []
+ignore_labels = os.environ.get('GITHUB_IGNORE_LABELS')
+GITHUB_IGNORE_LABELS = ignore_labels.split(',') if ignore_labels else []
+
+ignore_title_words = os.environ.get('GITHUB_IGNORE_TITLE_WORDS')
+GITHUB_IGNORE_TITLE_WORDS = ignore_title_words.split(',') if ignore_title_words else []
+
 SLACK_CHANNEL = os.environ.get('SLACK_CHANNEL', '#general')
 
 try:
@@ -15,25 +21,34 @@ except KeyError as error:
     sys.stderr.write('Please set the environment variable {0}'.format(error))
     sys.exit(1)
 
+client = Github(GITHUB_API_TOKEN)
 
-def is_ignored(title):
-    lowercase_title = title.lower()
-    for ignored_word in GITHUB_IGNORE_WORDS:
+def is_ignored(pull_request):
+    lowercase_title = pull_request.title.lower()
+    ignored_title = False
+    for ignored_word in GITHUB_IGNORE_TITLE_WORDS:
         if ignored_word.lower() in lowercase_title:
-            return True
+            ignored_title = True
 
-    return False
+    ignored_label = False
+    # TODO the python library doesn't fetch the labels, even though Githubs Api returns them
+    # https://github.com/PyGithub/PyGithub/blob/v1.39/github/PullRequest.py
+    # for label in (pull_request.labels if pull_request.labels else []):
+    #     if label in GITHUB_IGNORE_LABELS:
+    #         ignored_label = True
+
+    return ignored_title or ignored_label
 
 
 def format_pull_request(pull_request, repository):
     assignees = []
     for assignee in pull_request.assignees:
-        # For some reason access to 'login' fails for some assignees
-        try:
-            assignees.append(assignee['login'])
-        except AttributeError as attribute_error:
-            print(attribute_error)
-            print(assignee)
+        assignees.append(assignee.login)
+
+    # TODO the python library doesn't fetch the reviewers, even though Githubs Api returns them
+    # https://github.com/PyGithub/PyGithub/blob/v1.39/github/PullRequest.py
+    # for reviewer in pull_request.reviewers:
+    #     assignees.append(reviewer.login)
 
     assignee_text = ', '.join(assignees) if assignees else "no one"
     creator = pull_request.user.login
@@ -42,13 +57,11 @@ def format_pull_request(pull_request, repository):
 
 
 def fetch_open_pull_requests(organization_name):
-    client = login(token=GITHUB_API_TOKEN)
-    organization = client.organization(organization_name)
     formatted_pull_requests = []
 
-    for repository in organization.repositories():
-        for pull_request in repository.pull_requests():
-            if pull_request.state == 'open' and not is_ignored(pull_request.title):
+    for repository in client.get_organization(organization_name).get_repos('all'):
+        for pull_request in repository.get_pulls(state='open'):
+            if not is_ignored(pull_request):
                 formatted_pull_requests.append(format_pull_request(pull_request, repository.name))
 
     return formatted_pull_requests
@@ -62,18 +75,22 @@ def send_to_slack(text):
         'icon_emoji': ':bell:',
         'text': text
     }
-
     response = requests.post('https://slack.com/api/chat.postMessage', data=payload)
     answer = response.json()
     if not answer['ok']:
         raise Exception(answer['error'])
 
 
-def cli():
+def update_slack():
     pull_requests = fetch_open_pull_requests(GITHUB_ORGANIZATION)
     text = "No open pull requests today :partyparrot:" if not pull_requests else "Hi! There's a few open pull requests you should take a look at:\n" + '\n'.join(pull_requests)
     send_to_slack(text)
 
 
 if __name__ == '__main__':
-    cli()
+    update_slack()
+    schedule.every().day().at("09:30").do(update_slack)
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
