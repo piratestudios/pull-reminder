@@ -82,14 +82,16 @@ def send_to_slack(text):
 
 
 def update_slack():
+    print('Checking for pull requests')
     pull_requests = fetch_open_pull_requests(GITHUB_ORGANIZATION)
     text = "No open pull requests today :partyparrot:" if not pull_requests else "Hi! There's a few open pull requests you should take a look at:\n" + '\n'.join(pull_requests)
+    print(text)
     send_to_slack(text)
 
 
 if __name__ == '__main__':
-    update_slack()
-    schedule.every().day().at("09:30").do(update_slack)
+    print('beep boop')
+    schedule.every().day.at("09:30").do(update_slack)
 
     while True:
         schedule.run_pending()
