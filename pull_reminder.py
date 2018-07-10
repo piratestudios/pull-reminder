@@ -53,16 +53,18 @@ def format_pull_request(pull_request, repository):
 
     assignee_text = ', '.join(assignees) if assignees else "no one"
     creator = pull_request.user.login
-    created_days_ago = (pull_request.created_at - datetime.now()).days
+    created_days_ago = (datetime.now() - pull_request.created_at).days
 
-    return f"<{pull_request.html_url}|{repository}/{pull_request.title}> - by {creator} - assigned to *{assignee_text}* - created *{created_days_ago} days ago"
+    return f"<{pull_request.html_url}|{repository}/{pull_request.title}> - by {creator} - assigned to *{assignee_text}* - created {created_days_ago} days ago"
 
 
 def fetch_open_pull_requests(organization_name):
     formatted_pull_requests = []
 
     for repository in client.get_organization(organization_name).get_repos('all'):
-        for pull_request in repository.get_pulls(state='open').sort(key=lambda pr: pr.created_at):
+        pull_requests = [pull_request for pull_request in repository.get_pulls(state='open')]
+        pull_requests.sort(key=lambda pr: pr.created_at)
+        for pull_request in pull_requests:
             if not is_ignored(pull_request):
                 formatted_pull_requests.append(format_pull_request(pull_request, repository.name))
 
@@ -94,7 +96,6 @@ def update_slack():
 if __name__ == '__main__':
     print('beep boop')
     schedule.every().day.at("09:30").do(update_slack)
-
     while True:
         schedule.run_pending()
         time.sleep(1)
