@@ -1,3 +1,4 @@
+from datetime import datetime
 from github import Github
 import os
 import requests
@@ -45,22 +46,23 @@ def format_pull_request(pull_request, repository):
     for assignee in pull_request.assignees:
         assignees.append(assignee.login)
 
-    # TODO the python library doesn't fetch the reviewers, even though Githubs Api returns them
+    # TODO the python library doesn't fetch the reviewers, even though GitHub's Api returns them
     # https://github.com/PyGithub/PyGithub/blob/v1.39/github/PullRequest.py
     # for reviewer in pull_request.reviewers:
     #     assignees.append(reviewer.login)
 
     assignee_text = ', '.join(assignees) if assignees else "no one"
     creator = pull_request.user.login
+    created_days_ago = (pull_request.created_at - datetime.now()).days
 
-    return f"<{pull_request.html_url}|{repository}/{pull_request.title}> - by {creator} - assigned to *{assignee_text}*"
+    return f"<{pull_request.html_url}|{repository}/{pull_request.title}> - by {creator} - assigned to *{assignee_text}* - created *{created_days_ago} days ago"
 
 
 def fetch_open_pull_requests(organization_name):
     formatted_pull_requests = []
 
     for repository in client.get_organization(organization_name).get_repos('all'):
-        for pull_request in repository.get_pulls(state='open'):
+        for pull_request in repository.get_pulls(state='open').sort(key=lambda pr: pr.created_at):
             if not is_ignored(pull_request):
                 formatted_pull_requests.append(format_pull_request(pull_request, repository.name))
 
